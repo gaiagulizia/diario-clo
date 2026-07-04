@@ -1,0 +1,148 @@
+/**
+ * dataService.js
+ * ---------------------------------------------------------------------
+ * Livello di accesso ai dati del diario.
+ *
+ * Oggi salva tutto in localStorage, con i dati "scoperti" (namespaced)
+ * per utente, così che ognuno abbia il proprio diario.
+ *
+ * QUANDO COLLEGHERAI FIREBASE (piano gratuito - Firestore + Auth):
+ *  - Sostituisci le funzioni qui sotto con chiamate a Firestore
+ *    (collection "notebooks" e "pages", filtrate per uid).
+ *  - Mantieni la stessa "shape" degli oggetti (vedi sotto) e le stesse
+ *    firme di funzione: i componenti React non dovranno cambiare.
+ *  - Consiglio: usa onSnapshot() di Firestore per la sincronizzazione
+ *    realtime al posto delle funzioni sincrone qui sotto.
+ *
+ * Shape dei dati:
+ *  Notebook: { id, ownerId, name, color, createdAt }
+ *  Page:     { id, ownerId, notebookId, title, contentHtml, date,
+ *              createdAt, updatedAt }
+ * ---------------------------------------------------------------------
+ */
+
+const NOTEBOOKS_KEY = (uid) => `diary:${uid}:notebooks`;
+const PAGES_KEY = (uid) => `diary:${uid}:pages`;
+
+function uid() {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+function read(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function write(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+const TAB_COLORS = ['#8B2635', '#B08D3F', '#3E5C50', '#2F4858', '#6B4226'];
+
+/* ---------------------------- Notebooks ---------------------------- */
+
+export function getNotebooks(ownerId) {
+  return read(NOTEBOOKS_KEY(ownerId)).sort((a, b) => a.createdAt - b.createdAt);
+}
+
+export function createNotebook(ownerId, name) {
+  const notebooks = read(NOTEBOOKS_KEY(ownerId));
+  const notebook = {
+    id: uid(),
+    ownerId,
+    name: name?.trim() || 'Nuovo quaderno',
+    color: TAB_COLORS[notebooks.length % TAB_COLORS.length],
+    createdAt: Date.now(),
+  };
+  write(NOTEBOOKS_KEY(ownerId), [...notebooks, notebook]);
+  return notebook;
+}
+
+export function renameNotebook(ownerId, notebookId, name) {
+  const notebooks = read(NOTEBOOKS_KEY(ownerId)).map((n) =>
+    n.id === notebookId ? { ...n, name } : n
+  );
+  write(NOTEBOOKS_KEY(ownerId), notebooks);
+}
+
+export function deleteNotebook(ownerId, notebookId) {
+  const notebooks = read(NOTEBOOKS_KEY(ownerId)).filter((n) => n.id !== notebookId);
+  write(NOTEBOOKS_KEY(ownerId), notebooks);
+  const pages = read(PAGES_KEY(ownerId)).filter((p) => p.notebookId !== notebookId);
+  write(PAGES_KEY(ownerId), pages);
+}
+
+/* ------------------------------ Pages ------------------------------ */
+
+/** Restituisce tutte le pagine di un quaderno, ordinate per data,
+ *  escludendo le pagine bianche (senza testo reale). */
+export function getPages(ownerId, notebookId) {
+  return read(PAGES_KEY(ownerId))
+    .filter((p) => p.notebookId === notebookId)
+    .filter((p) => isPageNonEmpty(p))
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+}
+
+/** Come getPages, ma include anche le pagine bianche: utile per
+ *  ritrovare la bozza a cui si stava lavorando appena aperta. */
+export function getAllPagesRaw(ownerId, notebookId) {
+  return read(PAGES_KEY(ownerId))
+    .filter((p) => p.notebookId === notebookId)
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+}
+
+export function isPageNonEmpty(page) {
+  if (!page) return false;
+  const text = (page.contentHtml || '')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, '')
+    .trim();
+  const hasTitle = (page.title || '').trim().length > 0;
+  const hasMedia = /<img|<a /i.test(page.contentHtml || '');
+  return text.length > 0 || hasTitle || hasMedia;
+}
+
+export function getPage(ownerId, pageId) {
+  return read(PAGES_KEY(ownerId)).find((p) => p.id === pageId) || null;
+}
+
+export function createPage(ownerId, notebookId, date = new Date().toISOString()) {
+  const pages = read(PAGES_KEY(ownerId));
+  const page = {
+    id: uid(),
+    ownerId,
+    notebookId,
+    title: '',
+    contentHtml: '',
+    date,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  write(PAGES_KEY(ownerId), [...pages, page]);
+  return page;
+}
+
+export function updatePage(ownerId, pageId, patch) {
+  const pages = read(PAGES_KEY(ownerId)).map((p) =>
+    p.id === pageId ? { ...p, ...patch, updatedAt: Date.now() } : p
+  );
+  write(PAGES_KEY(ownerId), pages);
+  return pages.find((p) => p.id === pageId);
+}
+
+export function deletePage(ownerId, pageId) {
+  const pages = read(PAGES_KEY(ownerId)).filter((p) => p.id !== pageId);
+  write(PAGES_KEY(ownerId), pages);
+}
+
+/** Sposta uno o più fogli in un altro quaderno. */
+export function movePages(ownerId, pageIds, targetNotebookId) {
+  const pages = read(PAGES_KEY(ownerId)).map((p) =>
+    pageIds.includes(p.id) ? { ...p, notebookId: targetNotebookId, updatedAt: Date.now() } : p
+  );
+  write(PAGES_KEY(ownerId), pages);
+}
