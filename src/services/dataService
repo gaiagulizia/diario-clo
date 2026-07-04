@@ -17,12 +17,15 @@
  * Shape dei dati:
  *  Notebook: { id, ownerId, name, color, createdAt }
  *  Page:     { id, ownerId, notebookId, title, contentHtml, date,
- *              createdAt, updatedAt }
+ *              createdAt, updatedAt, deletedAt }
+ *  (deletedAt è null finché il foglio non finisce nel cestino)
  * ---------------------------------------------------------------------
  */
 
 const NOTEBOOKS_KEY = (uid) => `diary:${uid}:notebooks`;
 const PAGES_KEY = (uid) => `diary:${uid}:pages`;
+
+const TRASH_RETENTION_DAYS = 60;
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -42,6 +45,17 @@ function write(key, value) {
 }
 
 const TAB_COLORS = ['#8B2635', '#B08D3F', '#3E5C50', '#2F4858', '#6B4226'];
+
+export const NOTEBOOK_COLOR_PALETTE = [
+  '#8B2635', // rosso ceralacca
+  '#B08D3F', // oro
+  '#3E5C50', // verde bosco
+  '#2F4858', // blu petrolio
+  '#6B4226', // cuoio
+  '#5C3A5C', // prugna
+  '#3A5A78', // blu polvere
+  '#8A6D3B', // senape
+];
 
 /* ---------------------------- Notebooks ---------------------------- */
 
@@ -69,29 +83,41 @@ export function renameNotebook(ownerId, notebookId, name) {
   write(NOTEBOOKS_KEY(ownerId), notebooks);
 }
 
+/** Cambia il colore identificativo di un quaderno (tab, pallino ecc.). */
+export function setNotebookColor(ownerId, notebookId, color) {
+  const notebooks = read(NOTEBOOKS_KEY(ownerId)).map((n) =>
+    n.id === notebookId ? { ...n, color } : n
+  );
+  write(NOTEBOOKS_KEY(ownerId), notebooks);
+}
+
 export function deleteNotebook(ownerId, notebookId) {
   const notebooks = read(NOTEBOOKS_KEY(ownerId)).filter((n) => n.id !== notebookId);
   write(NOTEBOOKS_KEY(ownerId), notebooks);
-  const pages = read(PAGES_KEY(ownerId)).filter((p) => p.notebookId !== notebookId);
+  // I fogli del quaderno eliminato vanno nel cestino, non spariscono subito.
+  const pages = read(PAGES_KEY(ownerId)).map((p) =>
+    p.notebookId === notebookId && !p.deletedAt ? { ...p, deletedAt: Date.now() } : p
+  );
   write(PAGES_KEY(ownerId), pages);
 }
 
 /* ------------------------------ Pages ------------------------------ */
 
-/** Restituisce tutte le pagine di un quaderno, ordinate per data,
- *  escludendo le pagine bianche (senza testo reale). */
+/** Restituisce tutte le pagine (non cestinate) di un quaderno, ordinate
+ *  per data, escludendo le pagine bianche (senza testo reale). */
 export function getPages(ownerId, notebookId) {
   return read(PAGES_KEY(ownerId))
-    .filter((p) => p.notebookId === notebookId)
+    .filter((p) => p.notebookId === notebookId && !p.deletedAt)
     .filter((p) => isPageNonEmpty(p))
     .sort((a, b) => new Date(a.date) - new Date(b.date));
 }
 
 /** Come getPages, ma include anche le pagine bianche: utile per
- *  ritrovare la bozza a cui si stava lavorando appena aperta. */
+ *  ritrovare la bozza a cui si stava lavorando appena aperta, o per
+ *  sapere qual è il foglio prima/dopo quello corrente. */
 export function getAllPagesRaw(ownerId, notebookId) {
   return read(PAGES_KEY(ownerId))
-    .filter((p) => p.notebookId === notebookId)
+    .filter((p) => p.notebookId === notebookId && !p.deletedAt)
     .sort((a, b) => new Date(a.date) - new Date(b.date));
 }
 
@@ -121,6 +147,7 @@ export function createPage(ownerId, notebookId, date = new Date().toISOString())
     date,
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    deletedAt: null,
   };
   write(PAGES_KEY(ownerId), [...pages, page]);
   return page;
@@ -134,7 +161,18 @@ export function updatePage(ownerId, pageId, patch) {
   return pages.find((p) => p.id === pageId);
 }
 
+/** Sposta un foglio nel cestino (soft-delete): resta recuperabile. */
 export function deletePage(ownerId, pageId) {
+  const pages = read(PAGES_KEY(ownerId)).map((p) =>
+    p.id === pageId ? { ...p, deletedAt: Date.now() } : p
+  );
+  write(PAGES_KEY(ownerId), pages);
+}
+
+/** Elimina davvero e subito un foglio, senza passare dal cestino.
+ *  Usata internamente per ripulire bozze mai scritte quando si
+ *  cambia pagina (non per la cancellazione manuale, che va nel cestino). */
+export function discardBlankPage(ownerId, pageId) {
   const pages = read(PAGES_KEY(ownerId)).filter((p) => p.id !== pageId);
   write(PAGES_KEY(ownerId), pages);
 }
@@ -144,5 +182,43 @@ export function movePages(ownerId, pageIds, targetNotebookId) {
   const pages = read(PAGES_KEY(ownerId)).map((p) =>
     pageIds.includes(p.id) ? { ...p, notebookId: targetNotebookId, updatedAt: Date.now() } : p
   );
+  write(PAGES_KEY(ownerId), pages);
+}
+
+/* ------------------------------ Cestino ------------------------------ */
+
+/** Tutti i fogli cestinati, con il nome del quaderno di provenienza,
+ *  ordinati dal più recente al più vecchio. */
+export function getTrash(ownerId) {
+  const notebooks = getNotebooks(ownerId);
+  const nameById = Object.fromEntries(notebooks.map((n) => [n.id, n.name]));
+  return read(PAGES_KEY(ownerId))
+    .filter((p) => p.deletedAt)
+    .map((p) => ({ ...p, notebookName: nameById[p.notebookId] || 'Quaderno eliminato' }))
+    .sort((a, b) => b.deletedAt - a.deletedAt);
+}
+
+export function restorePage(ownerId, pageId) {
+  const pages = read(PAGES_KEY(ownerId)).map((p) =>
+    p.id === pageId ? { ...p, deletedAt: null } : p
+  );
+  write(PAGES_KEY(ownerId), pages);
+}
+
+export function permanentlyDeletePage(ownerId, pageId) {
+  const pages = read(PAGES_KEY(ownerId)).filter((p) => p.id !== pageId);
+  write(PAGES_KEY(ownerId), pages);
+}
+
+export function emptyTrash(ownerId) {
+  const pages = read(PAGES_KEY(ownerId)).filter((p) => !p.deletedAt);
+  write(PAGES_KEY(ownerId), pages);
+}
+
+/** Cancella per sempre i fogli nel cestino da più di 60 giorni.
+ *  Va chiamata una volta all'avvio dell'app. */
+export function purgeOldTrash(ownerId) {
+  const cutoff = Date.now() - TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  const pages = read(PAGES_KEY(ownerId)).filter((p) => !(p.deletedAt && p.deletedAt < cutoff));
   write(PAGES_KEY(ownerId), pages);
 }
