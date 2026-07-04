@@ -223,6 +223,42 @@ button, input {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.color-dot-btn {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.3);
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.color-picker-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 12px;
+  background: var(--cover);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+  z-index: 30;
+}
+
+.color-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.3);
+  cursor: pointer;
+  padding: 0;
 }
 
 .notebook-input {
@@ -479,12 +515,53 @@ button, input {
 .toolbar button:hover {
   background: rgba(139,38,53,0.8);
 }
+.toolbar button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.toolbar button:disabled:hover {
+  background: none;
+}
+
+/* Pulsante di formattazione attivo nel punto in cui si trova il cursore */
+.toolbar button.active {
+  background: var(--gold);
+  color: var(--cover-dark);
+}
+.toolbar button.active:hover {
+  background: var(--gold);
+}
 
 .toolbar-sep {
   width: 1px;
   height: 20px;
   background: rgba(255,255,255,0.15);
   margin: 0 4px;
+}
+
+.toolbar-dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.toolbar-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  background: var(--cover-dark);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 4px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  min-width: 170px;
+  z-index: 20;
+}
+
+.toolbar-dropdown-menu button {
+  text-align: left;
+  white-space: nowrap;
 }
 
 .page-sheet {
@@ -566,6 +643,82 @@ button, input {
   content: attr(data-placeholder);
   color: var(--ink-faint);
   opacity: 0.6;
+}
+
+/* Interlinea più stretta per gli elenchi puntati/numerati */
+.journal-editable ul,
+.journal-editable ol {
+  margin: 4px 0;
+  padding-left: 1.5em;
+}
+.journal-editable li {
+  line-height: 1.35;
+  margin: 0;
+}
+
+/* Citazione: rettangolo bianco dai bordi smussati, con più respiro laterale */
+.journal-editable blockquote {
+  background: #ffffff;
+  border-radius: 10px;
+  border-left: 3px solid var(--gold);
+  padding: 16px 32px;
+  margin: 16px 0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+/* Elenco da spuntare */
+.checklist-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 6px 0;
+  line-height: 1.4;
+}
+.checklist-box {
+  cursor: pointer;
+  user-select: none;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.checklist-item.checked .checklist-text {
+  text-decoration: line-through;
+  color: var(--ink-faint);
+  opacity: 0.75;
+}
+
+/* Navigazione "a libro" fra i fogli dello stesso quaderno */
+.book-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 760px;
+  margin: 18px auto 0 auto;
+  padding: 0 4px;
+}
+
+.book-nav-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: rgba(245,239,224,0.65);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 8px 10px;
+}
+.book-nav-btn:hover {
+  color: var(--text-on-dark);
+}
+.book-nav-btn:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.book-nav-position {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: rgba(245,239,224,0.4);
 }
 
 .fab {
@@ -653,6 +806,73 @@ button, input {
   height: 10px;
   border-radius: 50%;
   flex-shrink: 0;
+}
+
+.modal-box-wide {
+  max-width: 480px;
+}
+
+.trash-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.trash-list {
+  max-height: 340px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.trash-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--cover-dark);
+  border-radius: 4px;
+  padding: 10px 12px;
+}
+
+.trash-item-body {
+  min-width: 0;
+}
+
+.trash-item-title {
+  color: var(--text-on-dark);
+  margin: 0 0 2px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trash-item-meta {
+  color: rgba(245,239,224,0.45);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  margin: 0;
+}
+
+.trash-item-actions {
+  display: flex;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.trash-item-actions .text-link-btn,
+.trash-header .text-link-btn {
+  color: rgba(245,239,224,0.6);
+}
+.trash-item-actions .text-link-btn:hover,
+.trash-header .text-link-btn:hover {
+  color: var(--gold);
+}
+.text-link-btn.danger:hover {
+  color: #ff8b8b !important;
 }
 
 .modal-cancel {
