@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { NOTEBOOK_COLOR_PALETTE } from '../services/dataService';
 
 export default function NotebookSidebar({
   notebooks,
@@ -8,12 +9,16 @@ export default function NotebookSidebar({
   onCreate,
   onRename,
   onDelete,
+  onSetColor,
   onExportHtml,
   onExportJson,
+  onOpenTrash,
+  trashCount,
 }) {
   const { user, logout } = useAuth();
   const [editingId, setEditingId] = useState(null);
   const [draftName, setDraftName] = useState('');
+  const [colorPickerId, setColorPickerId] = useState(null);
 
   function startEdit(n) {
     setEditingId(n.id);
@@ -42,6 +47,16 @@ export default function NotebookSidebar({
               style={{ borderLeftColor: n.color }}
               onClick={() => onSelect(n.id)}
             >
+              <button
+                className="color-dot-btn"
+                style={{ background: n.color }}
+                title="Cambia colore"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setColorPickerId(colorPickerId === n.id ? null : n.id);
+                }}
+              />
+
               {editingId === n.id ? (
                 <input
                   autoFocus
@@ -72,12 +87,28 @@ export default function NotebookSidebar({
                   title="Elimina quaderno"
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (confirm(`Eliminare "${n.name}" e tutti i suoi fogli?`)) onDelete(n.id);
+                    if (confirm(`Eliminare "${n.name}" e spostare i suoi fogli nel cestino?`)) onDelete(n.id);
                   }}
                 >
                   ✕
                 </button>
               </div>
+
+              {colorPickerId === n.id && (
+                <div className="color-picker-popover" onClick={(e) => e.stopPropagation()}>
+                  {NOTEBOOK_COLOR_PALETTE.map((c) => (
+                    <button
+                      key={c}
+                      className="color-swatch"
+                      style={{ background: c }}
+                      onClick={() => {
+                        onSetColor(n.id, c);
+                        setColorPickerId(null);
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}
@@ -93,6 +124,9 @@ export default function NotebookSidebar({
         </button>
         <button className="footer-btn" disabled={!currentNotebookId} onClick={onExportJson}>
           Backup quaderno (JSON)
+        </button>
+        <button className="footer-btn" onClick={onOpenTrash}>
+          Cestino{trashCount > 0 ? ` (${trashCount})` : ''}
         </button>
         <button className="footer-btn danger" onClick={logout}>
           Esci
