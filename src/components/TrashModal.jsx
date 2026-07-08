@@ -15,7 +15,7 @@ export default function TrashModal({ items, onRestore, onDeleteForever, onEmpty,
           <h2 className="modal-title">Cestino</h2>
           {items.length > 0 && (
             <button
-              className="text-link-btn"
+              className="trash-btn trash-btn-danger"
               onClick={() => {
                 if (confirm('Svuotare il cestino? I fogli non saranno più recuperabili.')) onEmpty();
               }}
@@ -41,11 +41,11 @@ export default function TrashModal({ items, onRestore, onDeleteForever, onEmpty,
                   </p>
                 </div>
                 <div className="trash-item-actions">
-                  <button className="text-link-btn" onClick={() => onRestore(p.id)}>
+                  <button className="trash-btn" onClick={() => onRestore(p.id)}>
                     Ripristina
                   </button>
                   <button
-                    className="text-link-btn danger"
+                    className="trash-btn trash-btn-danger"
                     onClick={() => {
                       if (confirm('Eliminare per sempre questo foglio?')) onDeleteForever(p.id);
                     }}
@@ -63,3 +63,4 @@ export default function TrashModal({ items, onRestore, onDeleteForever, onEmpty,
     </div>
   );
 }
+
