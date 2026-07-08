@@ -1,20 +1,59 @@
 import { useEffect, useRef, useState } from 'react';
 import Toolbar from './Toolbar';
+import PlaceCreateModal from './PlaceCreateModal';
+import PlaceSidePanel from './PlaceSidePanel';
 import { exportPageAsHtml } from '../services/exportService';
+import { useAuth } from '../context/AuthContext';
+import * as data from '../services/dataService';
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+/** Trova l'antenato più vicino (fino a `root`) che soddisfa `test`. */
+function closestWithin(node, root, test) {
+  while (node && node !== root) {
+    if (node.nodeType === 1 && test(node)) return node;
+    node = node.parentNode;
+  }
+  return null;
+}
+
+/** Testo della "riga corrente" dentro `container`, cioè da dopo l'ultimo
+ *  <br> (o dall'inizio) fino al cursore. Serve a capire se la riga dove
+ *  si trova il cursore è vuota. */
+function currentLineTextBeforeCursor(container, range) {
+  const preRange = document.createRange();
+  preRange.setStart(container, 0);
+  preRange.setEnd(range.startContainer, range.startOffset);
+  const div = document.createElement('div');
+  div.appendChild(preRange.cloneContents());
+  const parts = div.innerHTML.split(/<br\s*\/?>/i);
+  const lastPart = parts[parts.length - 1];
+  const tmp = document.createElement('div');
+  tmp.innerHTML = lastPart;
+  return tmp.textContent.trim();
+}
 
 export default function PageEditor({ page, onChange, onDelete, siblingPages, onNavigate }) {
+  const { user } = useAuth();
   const editableRef = useRef(null);
   const [title, setTitle] = useState(page.title || '');
   const [date, setDate] = useState(page.date?.slice(0, 10) || new Date().toISOString().slice(0, 10));
   const [activeFormats, setActiveFormats] = useState({});
   const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false });
+  const [placeModalOpen, setPlaceModalOpen] = useState(false);
+  const [openPlace, setOpenPlace] = useState(null);
 
   const saveTimeout = useRef(null);
   const historyTimeout = useRef(null);
   const historyRef = useRef({ stack: [''], index: 0 });
   const isRestoringRef = useRef(false);
+  const savedRangeRef = useRef(null);
+  const savedTextRef = useRef('');
 
-  // Quando cambio pagina, ricarico contenuto ed è la cronologia annulla/ripristina
   useEffect(() => {
     setTitle(page.title || '');
     setDate(page.date?.slice(0, 10) || new Date().toISOString().slice(0, 10));
@@ -23,6 +62,7 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
     }
     historyRef.current = { stack: [page.contentHtml || ''], index: 0 };
     setHistoryState({ canUndo: false, canRedo: false });
+    setOpenPlace(null);
   }, [page.id]);
 
   // Rileva quali formattazioni sono attive nel punto in cui si trova il cursore
@@ -41,15 +81,8 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
         block = '';
       }
 
-      let node = sel.anchorNode;
-      let inChecklist = false;
-      while (node && node !== editable) {
-        if (node.nodeType === 1 && node.classList?.contains('checklist-item')) {
-          inChecklist = true;
-          break;
-        }
-        node = node.parentNode;
-      }
+      const inChecklist = !!closestWithin(sel.anchorNode, editable, (n) => n.classList?.contains('checklist-item'));
+      const inPlace = !!closestWithin(sel.anchorNode, editable, (n) => n.classList?.contains('place-link'));
 
       setActiveFormats({
         bold: document.queryCommandState('bold'),
@@ -59,6 +92,7 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
         h2: block === 'h2',
         blockquote: block === 'blockquote',
         checklist: inChecklist,
+        place: inPlace,
       });
     }
     document.addEventListener('selectionchange', updateActiveFormats);
@@ -123,20 +157,105 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
     editableRef.current.focus();
     const html =
       '<div class="checklist-item"><span class="checklist-box" contenteditable="false">☐</span>' +
-      '<span class="checklist-text">Nuovo elemento</span></div>';
+      '<span class="checklist-text"><br></span></div>';
     document.execCommand('insertHTML', false, html);
     handleContentInput();
+    requestAnimationFrame(() => placeCaretInLastChecklistText());
+  }
+
+  function placeCaretInLastChecklistText() {
+    const items = editableRef.current?.querySelectorAll('.checklist-item');
+    if (!items || items.length === 0) return;
+    const textEl = items[items.length - 1].querySelector('.checklist-text');
+    if (!textEl) return;
+    const range = document.createRange();
+    range.selectNodeContents(textEl);
+    range.collapse(false);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
+  function placeCaretAtStart(node) {
+    const range = document.createRange();
+    range.setStart(node, 0);
+    range.collapse(true);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
+  /** Gestisce Invio dentro citazioni ed elenchi da spuntare, che sono
+   *  blocchi "fatti in casa" e non hanno un comportamento nativo utile. */
+  function handleEditableKeyDown(e) {
+    if (e.key !== 'Enter') return;
+    const editable = editableRef.current;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+
+    const bq = closestWithin(sel.anchorNode, editable, (n) => n.tagName === 'BLOCKQUOTE');
+    if (bq) {
+      e.preventDefault();
+      const range = sel.getRangeAt(0);
+      const lineEmpty = currentLineTextBeforeCursor(bq, range) === '';
+      if (lineEmpty) {
+        // Doppio invio su riga vuota: esci dalla citazione
+        while (bq.lastChild && bq.lastChild.nodeName === 'BR') {
+          bq.removeChild(bq.lastChild);
+        }
+        const p = document.createElement('div');
+        p.innerHTML = '<br>';
+        bq.after(p);
+        placeCaretAtStart(p);
+      } else {
+        document.execCommand('insertLineBreak');
+      }
+      handleContentInput();
+      return;
+    }
+
+    const item = closestWithin(sel.anchorNode, editable, (n) => n.classList?.contains('checklist-item'));
+    if (item) {
+      e.preventDefault();
+      const textEl = item.querySelector('.checklist-text');
+      const isEmpty = !textEl || textEl.textContent.trim() === '';
+      if (isEmpty) {
+        const p = document.createElement('div');
+        p.innerHTML = '<br>';
+        item.after(p);
+        item.remove();
+        placeCaretAtStart(p);
+      } else {
+        const newItem = document.createElement('div');
+        newItem.className = 'checklist-item';
+        newItem.innerHTML =
+          '<span class="checklist-box" contenteditable="false">☐</span><span class="checklist-text"><br></span>';
+        item.after(newItem);
+        placeCaretInLastChecklistText();
+      }
+      handleContentInput();
+    }
   }
 
   function handleEditableClick(e) {
     const box = e.target.closest('.checklist-box');
-    if (!box) return;
-    e.preventDefault();
-    const item = box.closest('.checklist-item');
-    if (!item) return;
-    const checked = item.classList.toggle('checked');
-    box.textContent = checked ? '☑' : '☐';
-    handleContentInput();
+    if (box) {
+      e.preventDefault();
+      const item = box.closest('.checklist-item');
+      if (!item) return;
+      const checked = item.classList.toggle('checked');
+      box.textContent = checked ? '☑' : '☐';
+      handleContentInput();
+      return;
+    }
+
+    const placeEl = e.target.closest('.place-link');
+    if (placeEl) {
+      e.preventDefault();
+      const placeId = placeEl.dataset.placeId;
+      const place = data.getPlace(user.uid, placeId);
+      if (place) setOpenPlace(place);
+    }
   }
 
   function restoreHtml(html) {
@@ -162,6 +281,45 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
     setHistoryState({ canUndo: true, canRedo: h.index < h.stack.length - 1 });
   }
 
+  function handleOpenPlaceModal() {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed || !editableRef.current.contains(sel.anchorNode)) {
+      alert('Prima seleziona il testo a cui vuoi collegare un luogo.');
+      return;
+    }
+    savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+    savedTextRef.current = sel.toString();
+    setPlaceModalOpen(true);
+  }
+
+  function handleCreatePlace(fields) {
+    const place = data.createPlace(user.uid, fields);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    if (savedRangeRef.current) sel.addRange(savedRangeRef.current);
+    editableRef.current.focus();
+    const html = `<span class="place-link" data-place-id="${place.id}">${escapeHtml(savedTextRef.current)}</span>`;
+    document.execCommand('insertHTML', false, html);
+    handleContentInput();
+    setPlaceModalOpen(false);
+  }
+
+  function handleSavePlace(placeId, patch) {
+    const updated = data.updatePlace(user.uid, placeId, patch);
+    setOpenPlace(updated);
+  }
+
+  function handleUnlinkPlace(placeId) {
+    const span = editableRef.current.querySelector(`.place-link[data-place-id="${placeId}"]`);
+    if (span) {
+      const text = document.createTextNode(span.textContent);
+      span.replaceWith(text);
+      handleContentInput();
+    }
+    data.deletePlace(user.uid, placeId);
+    setOpenPlace(null);
+  }
+
   const siblings = siblingPages || [];
   const idx = siblings.findIndex((p) => p.id === page.id);
   const prevPage = idx > 0 ? siblings[idx - 1] : null;
@@ -174,6 +332,7 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
         onCommand={runCommand}
         onInsertImageFile={insertImageFile}
         onInsertChecklist={insertChecklistItem}
+        onOpenPlaceModal={handleOpenPlaceModal}
         onUndo={handleUndo}
         onRedo={handleRedo}
         canUndo={historyState.canUndo}
@@ -211,6 +370,7 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
           suppressContentEditableWarning
           onInput={handleContentInput}
           onClick={handleEditableClick}
+          onKeyDown={handleEditableKeyDown}
           data-placeholder="Scrivi qui i pensieri di oggi…"
         />
       </div>
@@ -234,6 +394,23 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
           Pagina successiva ▶
         </button>
       </div>
+
+      {placeModalOpen && (
+        <PlaceCreateModal
+          selectedText={savedTextRef.current}
+          onCreate={handleCreatePlace}
+          onClose={() => setPlaceModalOpen(false)}
+        />
+      )}
+
+      {openPlace && (
+        <PlaceSidePanel
+          place={openPlace}
+          onSave={handleSavePlace}
+          onUnlink={handleUnlinkPlace}
+          onClose={() => setOpenPlace(null)}
+        />
+      )}
     </div>
   );
 }
