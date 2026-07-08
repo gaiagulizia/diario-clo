@@ -24,6 +24,7 @@
 
 const NOTEBOOKS_KEY = (uid) => `diary:${uid}:notebooks`;
 const PAGES_KEY = (uid) => `diary:${uid}:pages`;
+const PLACES_KEY = (uid) => `diary:${uid}:places`;
 
 const TRASH_RETENTION_DAYS = 60;
 
@@ -221,4 +222,50 @@ export function purgeOldTrash(ownerId) {
   const cutoff = Date.now() - TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000;
   const pages = read(PAGES_KEY(ownerId)).filter((p) => !(p.deletedAt && p.deletedAt < cutoff));
   write(PAGES_KEY(ownerId), pages);
+}
+
+/* ------------------------------ Luoghi ------------------------------ */
+
+/**
+ * Un luogo collegato a un pezzo di testo del diario.
+ * Shape: { id, ownerId, name, description, hours, price, status,
+ *          lat, lng, mapsUrl, createdAt, updatedAt }
+ * status: 'to_see' | 'seen' | null
+ */
+
+export function getPlace(ownerId, placeId) {
+  return read(PLACES_KEY(ownerId)).find((p) => p.id === placeId) || null;
+}
+
+export function createPlace(ownerId, fields) {
+  const places = read(PLACES_KEY(ownerId));
+  const place = {
+    id: uid(),
+    ownerId,
+    name: fields.name?.trim() || '',
+    description: fields.description?.trim() || '',
+    hours: fields.hours?.trim() || '',
+    price: fields.price?.trim() || '',
+    status: fields.status || null,
+    lat: fields.lat ?? null,
+    lng: fields.lng ?? null,
+    mapsUrl: fields.mapsUrl?.trim() || '',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  write(PLACES_KEY(ownerId), [...places, place]);
+  return place;
+}
+
+export function updatePlace(ownerId, placeId, patch) {
+  const places = read(PLACES_KEY(ownerId)).map((p) =>
+    p.id === placeId ? { ...p, ...patch, updatedAt: Date.now() } : p
+  );
+  write(PLACES_KEY(ownerId), places);
+  return places.find((p) => p.id === placeId);
+}
+
+export function deletePlace(ownerId, placeId) {
+  const places = read(PLACES_KEY(ownerId)).filter((p) => p.id !== placeId);
+  write(PLACES_KEY(ownerId), places);
 }
