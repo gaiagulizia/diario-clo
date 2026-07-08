@@ -14,6 +14,7 @@ export default function Toolbar({
   onCommand,
   onInsertImageFile,
   onInsertChecklist,
+  onOpenPlaceModal,
   onUndo,
   onRedo,
   canUndo,
@@ -33,9 +34,17 @@ export default function Toolbar({
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, []);
 
-  function run(cmd) {
+  function run(key, cmd) {
     if (cmd.startsWith('formatBlock:')) {
-      onCommand('formatBlock', cmd.split(':')[1]);
+      const tag = cmd.split(':')[1];
+      // Se il formato è già attivo dove si trova il cursore, il pulsante
+      // lo toglie invece di riapplicarlo (altrimenti sarebbe impossibile
+      // tornare a scrivere testo normale).
+      if (activeFormats?.[key]) {
+        onCommand('formatBlock', 'DIV');
+      } else {
+        onCommand('formatBlock', tag);
+      }
     } else {
       onCommand(cmd);
     }
@@ -65,7 +74,7 @@ export default function Toolbar({
           key={b.key}
           type="button"
           title={b.title}
-          onClick={() => run(b.cmd)}
+          onClick={() => run(b.key, b.cmd)}
           className={activeFormats?.[b.key] ? 'active' : ''}
         >
           {b.label}
@@ -84,6 +93,15 @@ export default function Toolbar({
       <span className="toolbar-sep" />
 
       <button type="button" title="Inserisci link" onClick={handleLink}>🔗 Link</button>
+
+      <button
+        type="button"
+        title="Collega un luogo al testo selezionato"
+        onClick={onOpenPlaceModal}
+        className={activeFormats?.place ? 'active' : ''}
+      >
+        📍 Luogo
+      </button>
 
       <div className="toolbar-dropdown" ref={imageMenuRef}>
         <button type="button" title="Inserisci immagine" onClick={() => setImageMenuOpen((v) => !v)}>
