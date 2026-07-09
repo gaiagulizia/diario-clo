@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import HighlightPicker from './HighlightPicker';
 
 const INLINE_BUTTONS = [
   { key: 'bold', cmd: 'bold', label: 'B', title: 'Grassetto' },
@@ -19,6 +20,11 @@ export default function Toolbar({
   onInsertImageFile,
   onInsertChecklist,
   onOpenPlaceModal,
+  onOpenSubcardComposer,
+  onBeforeOpenHighlight,
+  savedHighlightColors,
+  onApplyHighlight,
+  onSaveHighlightColor,
   onUndo,
   onRedo,
   canUndo,
@@ -27,30 +33,25 @@ export default function Toolbar({
   const fileRef = useRef(null);
   const [imageMenuOpen, setImageMenuOpen] = useState(false);
   const [headingMenuOpen, setHeadingMenuOpen] = useState(false);
+  const [subcardMenuOpen, setSubcardMenuOpen] = useState(false);
+  const [highlightOpen, setHighlightOpen] = useState(false);
   const imageMenuRef = useRef(null);
   const headingMenuRef = useRef(null);
+  const subcardMenuRef = useRef(null);
+  const highlightRef = useRef(null);
 
   useEffect(() => {
     function handleOutsideClick(e) {
-      if (imageMenuRef.current && !imageMenuRef.current.contains(e.target)) {
-        setImageMenuOpen(false);
-      }
-      if (headingMenuRef.current && !headingMenuRef.current.contains(e.target)) {
-        setHeadingMenuOpen(false);
-      }
+      if (imageMenuRef.current && !imageMenuRef.current.contains(e.target)) setImageMenuOpen(false);
+      if (headingMenuRef.current && !headingMenuRef.current.contains(e.target)) setHeadingMenuOpen(false);
+      if (subcardMenuRef.current && !subcardMenuRef.current.contains(e.target)) setSubcardMenuOpen(false);
+      if (highlightRef.current && !highlightRef.current.contains(e.target)) setHighlightOpen(false);
     }
     document.addEventListener('mousedown', handleOutsideClick);
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, []);
 
-  function runInline(cmd) {
-    onCommand(cmd);
-  }
-
   function runFormatBlock(key, tag) {
-    // Se il formato è già attivo dove si trova il cursore, il pulsante
-    // lo toglie invece di riapplicarlo (altrimenti sarebbe impossibile
-    // tornare a scrivere testo normale).
     if (activeFormats?.[key]) {
       onCommand('formatBlock', 'DIV');
     } else {
@@ -84,6 +85,11 @@ export default function Toolbar({
     e.target.value = '';
   }
 
+  function handleApplyHighlight(hex, opacity) {
+    setHighlightOpen(false);
+    onApplyHighlight(hex, opacity);
+  }
+
   const activeHeading = HEADING_OPTIONS.find((o) => activeFormats?.[o.key]);
 
   return (
@@ -93,7 +99,7 @@ export default function Toolbar({
           key={b.key}
           type="button"
           title={b.title}
-          onClick={() => runInline(b.cmd)}
+          onClick={() => onCommand(b.cmd)}
           className={activeFormats?.[b.key] ? 'active' : ''}
         >
           {b.label}
@@ -143,6 +149,28 @@ export default function Toolbar({
         ☑ Lista
       </button>
 
+      <div className="toolbar-dropdown" ref={highlightRef}>
+        <button
+          type="button"
+          title="Evidenzia"
+          onClick={() => {
+            if (!highlightOpen) onBeforeOpenHighlight?.();
+            setHighlightOpen((v) => !v);
+          }}
+          className={activeFormats?.highlight ? 'active' : ''}
+        >
+          🖍 Evidenzia
+        </button>
+        {highlightOpen && (
+          <HighlightPicker
+            savedColors={savedHighlightColors}
+            onApply={handleApplyHighlight}
+            onSaveColor={onSaveHighlightColor}
+            onClose={() => setHighlightOpen(false)}
+          />
+        )}
+      </div>
+
       <span className="toolbar-sep" />
 
       <button type="button" title="Inserisci link" onClick={handleLink}>🔗 Link</button>
@@ -155,6 +183,27 @@ export default function Toolbar({
       >
         📍 Luogo
       </button>
+
+      <div className="toolbar-dropdown" ref={subcardMenuRef}>
+        <button
+          type="button"
+          title="Sottoscheda"
+          onClick={() => setSubcardMenuOpen((v) => !v)}
+          className={activeFormats?.subcard ? 'active' : ''}
+        >
+          📑 Sottoscheda
+        </button>
+        {subcardMenuOpen && (
+          <div className="toolbar-dropdown-menu">
+            <button type="button" onClick={() => { setSubcardMenuOpen(false); onOpenSubcardComposer('create'); }}>
+              Crea
+            </button>
+            <button type="button" onClick={() => { setSubcardMenuOpen(false); onOpenSubcardComposer('link'); }}>
+              Collega
+            </button>
+          </div>
+        )}
+      </div>
 
       <div className="toolbar-dropdown" ref={imageMenuRef}>
         <button type="button" title="Inserisci immagine" onClick={() => setImageMenuOpen((v) => !v)}>
