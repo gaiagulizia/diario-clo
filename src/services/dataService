@@ -8,17 +8,16 @@
  *
  * QUANDO COLLEGHERAI FIREBASE (piano gratuito - Firestore + Auth):
  *  - Sostituisci le funzioni qui sotto con chiamate a Firestore
- *    (collection "notebooks" e "pages", filtrate per uid).
- *  - Mantieni la stessa "shape" degli oggetti (vedi sotto) e le stesse
- *    firme di funzione: i componenti React non dovranno cambiare.
- *  - Consiglio: usa onSnapshot() di Firestore per la sincronizzazione
- *    realtime al posto delle funzioni sincrone qui sotto.
+ *    (collection "notebooks", "pages" e "places", filtrate per uid).
+ *  - Mantieni la stessa "shape" degli oggetti e le stesse firme di
+ *    funzione: i componenti React non dovranno cambiare.
  *
  * Shape dei dati:
  *  Notebook: { id, ownerId, name, color, createdAt }
- *  Page:     { id, ownerId, notebookId, title, contentHtml, date,
+ *  Page:     { id, ownerId, notebookId, title, contentHtml, date, tags,
  *              createdAt, updatedAt, deletedAt }
- *  (deletedAt è null finché il foglio non finisce nel cestino)
+ *  Place:    { id, ownerId, name, description, address, lat, lng,
+ *              photoUrl, hours, price, status, createdAt, updatedAt }
  * ---------------------------------------------------------------------
  */
 
@@ -27,6 +26,7 @@ const PAGES_KEY = (uid) => `diary:${uid}:pages`;
 const PLACES_KEY = (uid) => `diary:${uid}:places`;
 
 const TRASH_RETENTION_DAYS = 60;
+const MAX_TAGS_PER_PAGE = 10;
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -146,6 +146,7 @@ export function createPage(ownerId, notebookId, date = new Date().toISOString())
     title: '',
     contentHtml: '',
     date,
+    tags: [],
     createdAt: Date.now(),
     updatedAt: Date.now(),
     deletedAt: null,
@@ -170,6 +171,15 @@ export function deletePage(ownerId, pageId) {
   write(PAGES_KEY(ownerId), pages);
 }
 
+/** Sposta più fogli nel cestino in una volta sola. */
+export function deletePages(ownerId, pageIds) {
+  const now = Date.now();
+  const pages = read(PAGES_KEY(ownerId)).map((p) =>
+    pageIds.includes(p.id) ? { ...p, deletedAt: now } : p
+  );
+  write(PAGES_KEY(ownerId), pages);
+}
+
 /** Elimina davvero e subito un foglio, senza passare dal cestino.
  *  Usata internamente per ripulire bozze mai scritte quando si
  *  cambia pagina (non per la cancellazione manuale, che va nel cestino). */
@@ -182,6 +192,74 @@ export function discardBlankPage(ownerId, pageId) {
 export function movePages(ownerId, pageIds, targetNotebookId) {
   const pages = read(PAGES_KEY(ownerId)).map((p) =>
     pageIds.includes(p.id) ? { ...p, notebookId: targetNotebookId, updatedAt: Date.now() } : p
+  );
+  write(PAGES_KEY(ownerId), pages);
+}
+
+/* ------------------------------ Tag ------------------------------ */
+
+/** Normalizza un elenco di hashtag scritti a mano (es. "#studio #lavoro"
+ *  oppure "studio, lavoro") in una lista pulita, senza duplicati. */
+export function parseTagsInput(input) {
+  return [...new Set(
+    (input || '')
+      .split(/[\s,]+/)
+      .map((t) => t.replace(/^#/, '').trim().toLowerCase())
+      .filter(Boolean)
+  )];
+}
+
+/** Aggiunge dei tag a più fogli insieme, rispettando il massimo di
+ *  10 tag per foglio (i tag più vecchi restano, quelli nuovi in eccesso
+ *  vengono scartati). */
+export function addTagsToPages(ownerId, pageIds, tagsToAdd) {
+  const pages = read(PAGES_KEY(ownerId)).map((p) => {
+    if (!pageIds.includes(p.id)) return p;
+    const merged = [...new Set([...(p.tags || []), ...tagsToAdd])].slice(0, MAX_TAGS_PER_PAGE);
+    return { ...p, tags: merged, updatedAt: Date.now() };
+  });
+  write(PAGES_KEY(ownerId), pages);
+}
+
+/** Rimuove un singolo tag da un foglio. */
+export function removeTagFromPage(ownerId, pageId, tag) {
+  const pages = read(PAGES_KEY(ownerId)).map((p) =>
+    p.id === pageId ? { ...p, tags: (p.tags || []).filter((t) => t !== tag), updatedAt: Date.now() } : p
+  );
+  write(PAGES_KEY(ownerId), pages);
+}
+
+/** Tutti i tag usati (in tutti i quaderni), con quanti fogli li usano. */
+export function getAllTags(ownerId) {
+  const counts = {};
+  read(PAGES_KEY(ownerId))
+    .filter((p) => !p.deletedAt)
+    .forEach((p) => {
+      (p.tags || []).forEach((t) => {
+        counts[t] = (counts[t] || 0) + 1;
+      });
+    });
+  return Object.entries(counts)
+    .map(([tag, count]) => ({ tag, count }))
+    .sort((a, b) => a.tag.localeCompare(b.tag));
+}
+
+/** Rinomina un tag ovunque venga usato. */
+export function renameTag(ownerId, oldTag, newTag) {
+  const clean = parseTagsInput(newTag)[0];
+  if (!clean) return;
+  const pages = read(PAGES_KEY(ownerId)).map((p) => {
+    if (!(p.tags || []).includes(oldTag)) return p;
+    const tags = [...new Set(p.tags.map((t) => (t === oldTag ? clean : t)))];
+    return { ...p, tags, updatedAt: Date.now() };
+  });
+  write(PAGES_KEY(ownerId), pages);
+}
+
+/** Elimina un tag da tutti i fogli che lo usano. */
+export function deleteTag(ownerId, tag) {
+  const pages = read(PAGES_KEY(ownerId)).map((p) =>
+    (p.tags || []).includes(tag) ? { ...p, tags: p.tags.filter((t) => t !== tag), updatedAt: Date.now() } : p
   );
   write(PAGES_KEY(ownerId), pages);
 }
@@ -228,8 +306,6 @@ export function purgeOldTrash(ownerId) {
 
 /**
  * Un luogo collegato a un pezzo di testo del diario.
- * Shape: { id, ownerId, name, description, hours, price, status,
- *          lat, lng, mapsUrl, createdAt, updatedAt }
  * status: 'to_see' | 'seen' | null
  */
 
@@ -244,12 +320,13 @@ export function createPlace(ownerId, fields) {
     ownerId,
     name: fields.name?.trim() || '',
     description: fields.description?.trim() || '',
+    address: fields.address?.trim() || '',
+    lat: fields.lat ?? null,
+    lng: fields.lng ?? null,
+    photoUrl: fields.photoUrl || '',
     hours: fields.hours?.trim() || '',
     price: fields.price?.trim() || '',
     status: fields.status || null,
-    lat: fields.lat ?? null,
-    lng: fields.lng ?? null,
-    mapsUrl: fields.mapsUrl?.trim() || '',
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
