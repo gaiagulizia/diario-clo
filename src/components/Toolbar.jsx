@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 
-const FORMAT_BUTTONS = [
+const INLINE_BUTTONS = [
   { key: 'bold', cmd: 'bold', label: 'B', title: 'Grassetto' },
   { key: 'italic', cmd: 'italic', label: 'I', title: 'Corsivo' },
   { key: 'underline', cmd: 'underline', label: 'U', title: 'Sottolineato' },
   { key: 'insertUnorderedList', cmd: 'insertUnorderedList', label: '•—', title: 'Elenco puntato' },
-  { key: 'h2', cmd: 'formatBlock:H2', label: 'Titolo', title: 'Titolo di paragrafo' },
-  { key: 'blockquote', cmd: 'formatBlock:BLOCKQUOTE', label: '" "', title: 'Citazione' },
+];
+
+const HEADING_OPTIONS = [
+  { key: 'h1', tag: 'H1', label: 'Titolo grande' },
+  { key: 'h2', tag: 'H2', label: 'Titolo medio' },
+  { key: 'h3', tag: 'H3', label: 'Titolo piccolo' },
 ];
 
 export default function Toolbar({
@@ -22,32 +26,45 @@ export default function Toolbar({
 }) {
   const fileRef = useRef(null);
   const [imageMenuOpen, setImageMenuOpen] = useState(false);
+  const [headingMenuOpen, setHeadingMenuOpen] = useState(false);
   const imageMenuRef = useRef(null);
+  const headingMenuRef = useRef(null);
 
   useEffect(() => {
     function handleOutsideClick(e) {
       if (imageMenuRef.current && !imageMenuRef.current.contains(e.target)) {
         setImageMenuOpen(false);
       }
+      if (headingMenuRef.current && !headingMenuRef.current.contains(e.target)) {
+        setHeadingMenuOpen(false);
+      }
     }
     document.addEventListener('mousedown', handleOutsideClick);
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, []);
 
-  function run(key, cmd) {
-    if (cmd.startsWith('formatBlock:')) {
-      const tag = cmd.split(':')[1];
-      // Se il formato è già attivo dove si trova il cursore, il pulsante
-      // lo toglie invece di riapplicarlo (altrimenti sarebbe impossibile
-      // tornare a scrivere testo normale).
-      if (activeFormats?.[key]) {
-        onCommand('formatBlock', 'DIV');
-      } else {
-        onCommand('formatBlock', tag);
-      }
+  function runInline(cmd) {
+    onCommand(cmd);
+  }
+
+  function runFormatBlock(key, tag) {
+    // Se il formato è già attivo dove si trova il cursore, il pulsante
+    // lo toglie invece di riapplicarlo (altrimenti sarebbe impossibile
+    // tornare a scrivere testo normale).
+    if (activeFormats?.[key]) {
+      onCommand('formatBlock', 'DIV');
     } else {
-      onCommand(cmd);
+      onCommand('formatBlock', tag);
     }
+  }
+
+  function handleHeadingClick(opt) {
+    setHeadingMenuOpen(false);
+    runFormatBlock(opt.key, opt.tag);
+  }
+
+  function handleQuoteClick() {
+    runFormatBlock('blockquote', 'BLOCKQUOTE');
   }
 
   function handleLink() {
@@ -67,19 +84,55 @@ export default function Toolbar({
     e.target.value = '';
   }
 
+  const activeHeading = HEADING_OPTIONS.find((o) => activeFormats?.[o.key]);
+
   return (
     <div className="toolbar">
-      {FORMAT_BUTTONS.map((b) => (
+      {INLINE_BUTTONS.map((b) => (
         <button
           key={b.key}
           type="button"
           title={b.title}
-          onClick={() => run(b.key, b.cmd)}
+          onClick={() => runInline(b.cmd)}
           className={activeFormats?.[b.key] ? 'active' : ''}
         >
           {b.label}
         </button>
       ))}
+
+      <div className="toolbar-dropdown" ref={headingMenuRef}>
+        <button
+          type="button"
+          title="Titolo"
+          onClick={() => setHeadingMenuOpen((v) => !v)}
+          className={activeHeading ? 'active' : ''}
+        >
+          {activeHeading ? activeHeading.label : 'Titolo'} ▾
+        </button>
+        {headingMenuOpen && (
+          <div className="toolbar-dropdown-menu">
+            {HEADING_OPTIONS.map((opt) => (
+              <button
+                key={opt.key}
+                type="button"
+                className={activeFormats?.[opt.key] ? 'active' : ''}
+                onClick={() => handleHeadingClick(opt)}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <button
+        type="button"
+        title="Citazione"
+        onClick={handleQuoteClick}
+        className={activeFormats?.blockquote ? 'active' : ''}
+      >
+        " "
+      </button>
 
       <button
         type="button"
