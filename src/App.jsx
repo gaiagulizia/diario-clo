@@ -6,6 +6,7 @@ import PageList from './components/PageList';
 import PageEditor from './components/PageEditor';
 import TrashModal from './components/TrashModal';
 import SettingsModal from './components/SettingsModal';
+import SubcardModal from './components/SubcardModal';
 import * as data from './services/dataService';
 import { exportNotebookAsHtml, exportNotebookAsJson } from './services/exportService';
 
@@ -18,11 +19,14 @@ function DiaryApp() {
   const [trashOpen, setTrashOpen] = useState(false);
   const [trashItems, setTrashItems] = useState([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [allSubcards, setAllSubcards] = useState([]);
+  const [viewSubcard, setViewSubcard] = useState(null);
 
   // All'avvio: elimina dal cestino ciò che ha più di 60 giorni, poi carica i quaderni
   useEffect(() => {
     data.purgeOldTrash(user.uid);
     refreshTrash();
+    refreshSubcards();
 
     let nbs = data.getNotebooks(user.uid);
     if (nbs.length === 0) {
@@ -48,6 +52,26 @@ function DiaryApp() {
 
   function refreshTrash() {
     setTrashItems(data.getTrash(user.uid));
+  }
+
+  function refreshSubcards() {
+    setAllSubcards(data.getAllSubcards(user.uid));
+  }
+
+  const subcardsById = useMemo(
+    () => Object.fromEntries(allSubcards.map((s) => [s.id, s.title])),
+    [allSubcards]
+  );
+
+  function handleOpenSubcardFromList(subcardId) {
+    const s = data.getSubcard(user.uid, subcardId);
+    if (s) setViewSubcard(s);
+  }
+
+  function handleSaveViewSubcard(subcardId, patch) {
+    const updated = data.updateSubcard(user.uid, subcardId, patch);
+    setViewSubcard(updated);
+    refreshSubcards();
   }
 
   const activePage = useMemo(
@@ -201,6 +225,8 @@ function DiaryApp() {
         onMovePages={handleMovePages}
         onDeletePages={handleBulkDeletePages}
         onAssignTags={handleAssignTags}
+        subcardsById={subcardsById}
+        onOpenSubcard={handleOpenSubcardFromList}
       />
 
       <div className="editor-area">
@@ -211,6 +237,7 @@ function DiaryApp() {
             onDelete={handleDeletePage}
             siblingPages={pages}
             onNavigate={selectPage}
+            onSubcardsChanged={refreshSubcards}
           />
         ) : (
           <div className="editor-empty">
@@ -240,6 +267,15 @@ function DiaryApp() {
 
       {settingsOpen && (
         <SettingsModal onClose={() => setSettingsOpen(false)} onChanged={refreshPages} />
+      )}
+
+      {viewSubcard && (
+        <SubcardModal
+          subcard={viewSubcard}
+          allowUnlink={false}
+          onSave={handleSaveViewSubcard}
+          onClose={() => setViewSubcard(null)}
+        />
       )}
     </div>
   );
