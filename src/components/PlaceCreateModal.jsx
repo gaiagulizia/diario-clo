@@ -1,12 +1,13 @@
 import { useState } from 'react';
+import PlacePhotoPicker from './PlacePhotoPicker';
 
 export default function PlaceCreateModal({ selectedText, onCreate, onClose }) {
-  const [mode, setMode] = useState('link'); // 'link' | 'coords'
-  const [mapsUrl, setMapsUrl] = useState('');
+  const [mode, setMode] = useState('address'); // 'address' | 'coords'
+  const [address, setAddress] = useState('');
   const [lat, setLat] = useState('');
   const [lng, setLng] = useState('');
-  const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [photoUrl, setPhotoUrl] = useState('');
   const [hours, setHours] = useState('');
   const [price, setPrice] = useState('');
   const [status, setStatus] = useState('to_see');
@@ -14,12 +15,8 @@ export default function PlaceCreateModal({ selectedText, onCreate, onClose }) {
 
   function handleSubmit(e) {
     e.preventDefault();
-    if (!name.trim() || !description.trim()) {
-      setError('Nome e descrizione sono obbligatori.');
-      return;
-    }
-    if (mode === 'link' && !mapsUrl.trim()) {
-      setError('Incolla il link di Google Maps, oppure passa a "Coordinate".');
+    if (mode === 'address' && !address.trim()) {
+      setError('Incolla l\'indirizzo copiato da Google Maps, oppure passa a "Coordinate".');
       return;
     }
     if (mode === 'coords' && (lat.trim() === '' || lng.trim() === '')) {
@@ -28,12 +25,13 @@ export default function PlaceCreateModal({ selectedText, onCreate, onClose }) {
     }
 
     onCreate({
-      name: name.trim(),
+      name: selectedText,
       description: description.trim(),
       hours: hours.trim(),
       price: price.trim(),
       status,
-      mapsUrl: mode === 'link' ? mapsUrl.trim() : '',
+      photoUrl,
+      address: mode === 'address' ? address.trim() : '',
       lat: mode === 'coords' ? parseFloat(lat) : null,
       lng: mode === 'coords' ? parseFloat(lng) : null,
     });
@@ -44,17 +42,17 @@ export default function PlaceCreateModal({ selectedText, onCreate, onClose }) {
       <div className="modal-box modal-box-wide">
         <h2 className="modal-title">Collega un luogo</h2>
         <p className="modal-subtitle">
-          Testo selezionato: <em>“{selectedText}”</em>
+          Testo selezionato: <em>“{selectedText}”</em> — diventerà il nome del luogo.
         </p>
 
         <form onSubmit={handleSubmit}>
           <div className="place-tab-switch">
             <button
               type="button"
-              className={`place-tab-btn ${mode === 'link' ? 'active' : ''}`}
-              onClick={() => setMode('link')}
+              className={`place-tab-btn ${mode === 'address' ? 'active' : ''}`}
+              onClick={() => setMode('address')}
             >
-              Link Google Maps
+              Indirizzo
             </button>
             <button
               type="button"
@@ -65,14 +63,14 @@ export default function PlaceCreateModal({ selectedText, onCreate, onClose }) {
             </button>
           </div>
 
-          {mode === 'link' ? (
+          {mode === 'address' ? (
             <div className="field">
-              <label>Link di Google Maps</label>
+              <label>Indirizzo (copiato da Google Maps)</label>
               <input
                 type="text"
-                value={mapsUrl}
-                onChange={(e) => setMapsUrl(e.target.value)}
-                placeholder="https://maps.google.com/..."
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="Via Roma 1, Milano"
               />
             </div>
           ) : (
@@ -100,13 +98,10 @@ export default function PlaceCreateModal({ selectedText, onCreate, onClose }) {
             </div>
           )}
 
-          <div className="field">
-            <label>Nome *</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome del luogo" />
-          </div>
+          <PlacePhotoPicker photoUrl={photoUrl} onChange={setPhotoUrl} />
 
           <div className="field">
-            <label>Descrizione *</label>
+            <label>Descrizione (facoltativa)</label>
             <textarea
               rows={3}
               value={description}
