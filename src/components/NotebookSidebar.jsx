@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { NOTEBOOK_COLOR_PALETTE } from '../services/dataService';
+import { NOTEBOOK_COLOR_PALETTE, normalizeColorInput } from '../services/dataService';
 
 export default function NotebookSidebar({
   notebooks,
@@ -20,6 +20,7 @@ export default function NotebookSidebar({
   const [editingId, setEditingId] = useState(null);
   const [draftName, setDraftName] = useState('');
   const [colorPickerId, setColorPickerId] = useState(null);
+  const [colorTextInput, setColorTextInput] = useState('');
 
   function startEdit(n) {
     setEditingId(n.id);
@@ -97,17 +98,43 @@ export default function NotebookSidebar({
 
               {colorPickerId === n.id && (
                 <div className="color-picker-popover" onClick={(e) => e.stopPropagation()}>
-                  {NOTEBOOK_COLOR_PALETTE.map((c) => (
-                    <button
-                      key={c}
-                      className="color-swatch"
-                      style={{ background: c }}
-                      onClick={() => {
-                        onSetColor(n.id, c);
-                        setColorPickerId(null);
+                  <div className="color-swatch-grid">
+                    {NOTEBOOK_COLOR_PALETTE.map((c) => (
+                      <button
+                        key={c}
+                        className="color-swatch"
+                        style={{ background: c }}
+                        onClick={() => {
+                          onSetColor(n.id, c);
+                          setColorPickerId(null);
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <div className="color-picker-custom-row">
+                    <input
+                      type="color"
+                      value={n.color}
+                      title="Ruota dei colori"
+                      onChange={(e) => onSetColor(n.id, e.target.value)}
+                    />
+                    <input
+                      type="text"
+                      className="color-picker-text-input"
+                      placeholder="#RRGGBB o rgb(0,0,0)"
+                      value={colorTextInput}
+                      onChange={(e) => setColorTextInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key !== 'Enter') return;
+                        const normalized = normalizeColorInput(colorTextInput);
+                        if (normalized) {
+                          onSetColor(n.id, normalized);
+                          setColorTextInput('');
+                          setColorPickerId(null);
+                        }
                       }}
                     />
-                  ))}
+                  </div>
                 </div>
               )}
             </div>
