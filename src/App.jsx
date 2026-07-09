@@ -5,6 +5,7 @@ import NotebookSidebar from './components/NotebookSidebar';
 import PageList from './components/PageList';
 import PageEditor from './components/PageEditor';
 import TrashModal from './components/TrashModal';
+import SettingsModal from './components/SettingsModal';
 import * as data from './services/dataService';
 import { exportNotebookAsHtml, exportNotebookAsJson } from './services/exportService';
 
@@ -16,6 +17,7 @@ function DiaryApp() {
   const [activePageId, setActivePageId] = useState(null);
   const [trashOpen, setTrashOpen] = useState(false);
   const [trashItems, setTrashItems] = useState([]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // All'avvio: elimina dal cestino ciò che ha più di 60 giorni, poi carica i quaderni
   useEffect(() => {
@@ -132,6 +134,18 @@ function DiaryApp() {
     refreshPages();
   }
 
+  function handleBulkDeletePages(pageIds) {
+    data.deletePages(user.uid, pageIds);
+    if (pageIds.includes(activePageId)) setActivePageId(null);
+    refreshPages();
+    refreshTrash();
+  }
+
+  function handleAssignTags(pageIds, tags) {
+    data.addTagsToPages(user.uid, pageIds, tags);
+    refreshPages();
+  }
+
   function handleExportHtml() {
     const notebook = notebooks.find((n) => n.id === currentNotebookId);
     exportNotebookAsHtml(notebook, visiblePages);
@@ -175,6 +189,7 @@ function DiaryApp() {
           setTrashOpen(true);
         }}
         trashCount={trashItems.length}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
 
       <PageList
@@ -184,6 +199,8 @@ function DiaryApp() {
         activePageId={activePageId}
         onSelectPage={selectPage}
         onMovePages={handleMovePages}
+        onDeletePages={handleBulkDeletePages}
+        onAssignTags={handleAssignTags}
       />
 
       <div className="editor-area">
@@ -219,6 +236,10 @@ function DiaryApp() {
           onEmpty={handleEmptyTrash}
           onClose={() => setTrashOpen(false)}
         />
+      )}
+
+      {settingsOpen && (
+        <SettingsModal onClose={() => setSettingsOpen(false)} onChanged={refreshPages} />
       )}
     </div>
   );
