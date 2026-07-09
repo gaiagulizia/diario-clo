@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import MoveModal from './MoveModal';
 import TagAssignModal from './TagAssignModal';
+import { extractSubcardIds } from '../services/dataService';
 
 function stripHtml(html) {
   return (html || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
@@ -29,6 +30,8 @@ export default function PageList({
   onMovePages,
   onDeletePages,
   onAssignTags,
+  subcardsById,
+  onOpenSubcard,
 }) {
   const [editMode, setEditMode] = useState(false);
   const [selected, setSelected] = useState([]);
@@ -36,6 +39,7 @@ export default function PageList({
   const [showTagModal, setShowTagModal] = useState(false);
   const [search, setSearch] = useState('');
   const [filterTags, setFilterTags] = useState([]);
+  const [expandedPageId, setExpandedPageId] = useState(null);
 
   const allTagsHere = useMemo(() => {
     const set = new Set();
@@ -136,33 +140,61 @@ export default function PageList({
             {pages.length === 0 ? 'Ancora nessun foglio scritto in questo quaderno.' : 'Nessun foglio corrisponde alla ricerca.'}
           </p>
         )}
-        {filteredPages.map((p) => (
-          <div
-            key={p.id}
-            className={`page-item ${p.id === activePageId ? 'active' : ''}`}
-          >
-            {editMode && (
-              <input
-                type="checkbox"
-                checked={selected.includes(p.id)}
-                onChange={() => toggleSelect(p.id)}
-                onClick={(e) => e.stopPropagation()}
-              />
-            )}
-            <div className="page-item-body" onClick={() => onSelectPage(p.id)}>
-              <p className="page-item-date">{formatDate(p.date)}</p>
-              <p className="page-item-title">{p.title || 'Senza titolo'}</p>
-              <p className="page-item-preview">{preview(p.contentHtml) || 'Pagina vuota…'}</p>
-              {(p.tags || []).length > 0 && (
-                <div className="page-item-tags">
-                  {p.tags.map((t) => (
-                    <span key={t} className="tag-chip-small">#{t}</span>
-                  ))}
-                </div>
+        {filteredPages.map((p) => {
+          const subcardIds = extractSubcardIds(p.contentHtml);
+          const expanded = expandedPageId === p.id;
+          return (
+            <div key={p.id} className={`page-item ${p.id === activePageId ? 'active' : ''}`}>
+              {editMode && (
+                <input
+                  type="checkbox"
+                  checked={selected.includes(p.id)}
+                  onChange={() => toggleSelect(p.id)}
+                  onClick={(e) => e.stopPropagation()}
+                />
               )}
+              <div className="page-item-body" onClick={() => onSelectPage(p.id)}>
+                <p className="page-item-date">{formatDate(p.date)}</p>
+                <p className="page-item-title">{p.title || 'Senza titolo'}</p>
+                <p className="page-item-preview">{preview(p.contentHtml) || 'Pagina vuota…'}</p>
+                {(p.tags || []).length > 0 && (
+                  <div className="page-item-tags">
+                    {p.tags.map((t) => (
+                      <span key={t} className="tag-chip-small">#{t}</span>
+                    ))}
+                  </div>
+                )}
+                {subcardIds.length > 0 && (
+                  <button
+                    className="subcard-expand-toggle"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setExpandedPageId(expanded ? null : p.id);
+                    }}
+                  >
+                    {expanded ? '▾' : '▸'} {subcardIds.length} sottoscheda/e
+                  </button>
+                )}
+                {expanded && (
+                  <div className="subcard-expand-list">
+                    {subcardIds.map((id) => (
+                      <button
+                        key={id}
+                        className="subcard-expand-item"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenSubcard(id);
+                        }}
+                      >
+                        📑 {subcardsById?.[id] || 'Sottoscheda'}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {showMove && (
