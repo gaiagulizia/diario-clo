@@ -1112,3 +1112,184 @@ button, input {
 .place-drawer-actions .text-link-btn:hover {
   color: #ff8b8b;
 }
+
+/* -------------------------- Titoli (3 grandezze) -------------------------- */
+
+.journal-editable h1 {
+  font-family: 'Fraunces', serif;
+  font-size: 2rem;
+  line-height: 1.25;
+  margin: 18px 0 10px 0;
+}
+.journal-editable h2 {
+  font-family: 'Fraunces', serif;
+  font-size: 1.55rem;
+  line-height: 1.3;
+  margin: 16px 0 8px 0;
+}
+.journal-editable h3 {
+  font-family: 'Fraunces', serif;
+  font-size: 1.2rem;
+  line-height: 1.35;
+  margin: 14px 0 6px 0;
+}
+
+/* -------------------------- Anteprima al passaggio del mouse -------------------------- */
+
+.place-hover-preview {
+  position: fixed;
+  z-index: 70;
+  width: 220px;
+  background: var(--cover);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 12px 30px -8px rgba(0,0,0,0.6);
+  pointer-events: none;
+}
+.place-hover-photo {
+  width: 100%;
+  height: 110px;
+  object-fit: cover;
+  display: block;
+}
+.place-hover-body {
+  padding: 10px 12px;
+}
+.place-hover-name {
+  color: var(--text-on-dark);
+  font-family: 'Fraunces', serif;
+  font-size: 15px;
+  margin: 0 0 4px 0;
+}
+.place-hover-address {
+  color: rgba(245,239,224,0.55);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  margin: 0;
+}
+
+/* -------------------------- Foto di copertina del luogo -------------------------- */
+
+.place-photo-actions {
+  display: flex;
+  gap: 8px;
+}
+.place-photo-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.place-photo-preview img {
+  width: 72px;
+  height: 54px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+/* -------------------------- Ricerca e tag nell'elenco fogli -------------------------- */
+
+.page-list-search {
+  padding: 10px 16px 0 16px;
+}
+.page-list-search input {
+  width: 100%;
+  background: var(--cover-dark);
+  color: var(--text-on-dark);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 4px;
+  padding: 7px 10px;
+  font-size: 13px;
+}
+.page-list-search input::placeholder {
+  color: rgba(245,239,224,0.35);
+}
+
+.tag-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 16px 0 16px;
+}
+
+.tag-chip {
+  background: var(--cover-dark);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 12px;
+  padding: 3px 10px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: rgba(245,239,224,0.65);
+  cursor: pointer;
+}
+.tag-chip.active {
+  background: var(--gold);
+  color: var(--cover-dark);
+  border-color: transparent;
+}
+
+.tag-chip-small {
+  display: inline-block;
+  background: rgba(176,141,63,0.18);
+  color: var(--gold);
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  margin: 4px 4px 0 0;
+}
+
+.page-item-tags {
+  margin-top: 2px;
+}
+
+/* -------------------------- Modalità modifica ed azioni in blocco -------------------------- */
+
+.icon-btn.active {
+  color: var(--gold);
+}
+
+.bulk-action-bar {
+  display: flex;
+  gap: 8px;
+  padding: 10px 16px 0 16px;
+}
+
+.move-btn-danger {
+  background: var(--seal);
+}
+.move-btn-danger:hover {
+  background: var(--seal-dark);
+}
+
+/* -------------------------- Impostazioni: gestione tag -------------------------- */
+
+.settings-tag-list {
+  max-height: 340px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.settings-tag-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--cover-dark);
+  border-radius: 4px;
+  padding: 10px 12px;
+}
+
+.settings-tag-name {
+  color: var(--text-on-dark);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+}
+
+.settings-tag-count {
+  color: rgba(245,239,224,0.4);
+}
