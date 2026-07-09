@@ -14,6 +14,7 @@ export default function NotebookSidebar({
   onExportJson,
   onOpenTrash,
   trashCount,
+  onOpenSettings,
 }) {
   const { user, logout } = useAuth();
   const [editingId, setEditingId] = useState(null);
@@ -127,6 +128,9 @@ export default function NotebookSidebar({
         </button>
         <button className="footer-btn" onClick={onOpenTrash}>
           Cestino{trashCount > 0 ? ` (${trashCount})` : ''}
+        </button>
+        <button className="footer-btn" onClick={onOpenSettings}>
+          Impostazioni
         </button>
         <button className="footer-btn danger" onClick={logout}>
           Esci
