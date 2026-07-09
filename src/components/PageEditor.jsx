@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import Toolbar from './Toolbar';
 import PlaceCreateModal from './PlaceCreateModal';
-import PlaceSidePanel from './PlaceSidePanel';
+import PlaceCardModal from './PlaceCardModal';
+import SubcardComposerModal from './SubcardComposerModal';
+import SubcardModal from './SubcardModal';
 import { exportPageAsHtml } from '../services/exportService';
 import { useAuth } from '../context/AuthContext';
 import * as data from '../services/dataService';
@@ -11,6 +13,15 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+function hexToRgba(hex, opacityPercent) {
+  const clean = hex.replace('#', '');
+  const r = parseInt(clean.substring(0, 2), 16);
+  const g = parseInt(clean.substring(2, 4), 16);
+  const b = parseInt(clean.substring(4, 6), 16);
+  const a = Math.max(0, Math.min(100, opacityPercent)) / 100;
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
 }
 
 /** Trova l'antenato più vicino (fino a `root`) che soddisfa `test`. */
@@ -47,7 +58,16 @@ function placeCaretAtStart(node) {
   sel.addRange(range);
 }
 
-export default function PageEditor({ page, onChange, onDelete, siblingPages, onNavigate }) {
+/** Esce da un "blocco fatto in casa" (luogo o sottoscheda) collegato
+ *  inline: mette il cursore in una nuova riga vuota subito dopo. */
+function exitInlineLink(linkEl) {
+  const p = document.createElement('div');
+  p.innerHTML = '<br>';
+  linkEl.after(p);
+  placeCaretAtStart(p);
+}
+
+export default function PageEditor({ page, onChange, onDelete, siblingPages, onNavigate, onSubcardsChanged }) {
   const { user } = useAuth();
   const editableRef = useRef(null);
   const [title, setTitle] = useState(page.title || '');
@@ -56,7 +76,10 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
   const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false });
   const [placeModalOpen, setPlaceModalOpen] = useState(false);
   const [openPlace, setOpenPlace] = useState(null);
-  const [hoverPreview, setHoverPreview] = useState(null); // { place, x, y }
+  const [hoverPreview, setHoverPreview] = useState(null);
+  const [subcardComposer, setSubcardComposer] = useState(null);
+  const [openSubcard, setOpenSubcard] = useState(null);
+  const [savedHighlightColors, setSavedHighlightColors] = useState(() => data.getSavedHighlightColors(user.uid));
 
   const saveTimeout = useRef(null);
   const historyTimeout = useRef(null);
@@ -75,10 +98,10 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
     historyRef.current = { stack: [page.contentHtml || ''], index: 0 };
     setHistoryState({ canUndo: false, canRedo: false });
     setOpenPlace(null);
+    setOpenSubcard(null);
     setHoverPreview(null);
   }, [page.id]);
 
-  // Rileva quali formattazioni sono attive nel punto in cui si trova il cursore
   useEffect(() => {
     function updateActiveFormats() {
       const editable = editableRef.current;
@@ -93,9 +116,17 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
       } catch {
         block = '';
       }
+      let hiliteVal = '';
+      try {
+        hiliteVal = document.queryCommandValue('hiliteColor');
+      } catch {
+        hiliteVal = '';
+      }
+      const hasHighlight = !!hiliteVal && hiliteVal !== 'transparent' && !/rgba?\(0,\s*0,\s*0,\s*0\)/.test(hiliteVal);
 
       const inChecklist = !!closestWithin(sel.anchorNode, editable, (n) => n.classList?.contains('checklist-item'));
       const inPlace = !!closestWithin(sel.anchorNode, editable, (n) => n.classList?.contains('place-link'));
+      const inSubcard = !!closestWithin(sel.anchorNode, editable, (n) => n.classList?.contains('subcard-link'));
 
       setActiveFormats({
         bold: document.queryCommandState('bold'),
@@ -108,6 +139,8 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
         blockquote: block === 'blockquote',
         checklist: inChecklist,
         place: inPlace,
+        subcard: inSubcard,
+        highlight: hasHighlight,
       });
     }
     document.addEventListener('selectionchange', updateActiveFormats);
@@ -191,23 +224,20 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
     sel.addRange(range);
   }
 
-  /** Gestisce Invio dentro luoghi, citazioni ed elenchi da spuntare, che
-   *  sono blocchi "fatti in casa" e non hanno un comportamento nativo utile. */
   function handleEditableKeyDown(e) {
     if (e.key !== 'Enter') return;
     const editable = editableRef.current;
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return;
 
-    // Se il cursore è dentro un luogo collegato, la riga dopo l'Invio
-    // deve tornare a essere testo normale, non parte del collegamento.
-    const placeLink = closestWithin(sel.anchorNode, editable, (n) => n.classList?.contains('place-link'));
-    if (placeLink) {
+    const inlineLink = closestWithin(
+      sel.anchorNode,
+      editable,
+      (n) => n.classList?.contains('place-link') || n.classList?.contains('subcard-link')
+    );
+    if (inlineLink) {
       e.preventDefault();
-      const p = document.createElement('div');
-      p.innerHTML = '<br>';
-      placeLink.after(p);
-      placeCaretAtStart(p);
+      exitInlineLink(inlineLink);
       handleContentInput();
       return;
     }
@@ -218,7 +248,6 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
       const range = sel.getRangeAt(0);
       const lineEmpty = currentLineTextBeforeCursor(bq, range) === '';
       if (lineEmpty) {
-        // Doppio invio su riga vuota: esci dalla citazione
         while (bq.lastChild && bq.lastChild.nodeName === 'BR') {
           bq.removeChild(bq.lastChild);
         }
@@ -272,9 +301,16 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
     if (placeEl) {
       e.preventDefault();
       setHoverPreview(null);
-      const placeId = placeEl.dataset.placeId;
-      const place = data.getPlace(user.uid, placeId);
+      const place = data.getPlace(user.uid, placeEl.dataset.placeId);
       if (place) setOpenPlace(place);
+      return;
+    }
+
+    const subcardEl = e.target.closest('.subcard-link');
+    if (subcardEl) {
+      e.preventDefault();
+      const subcard = data.getSubcard(user.uid, subcardEl.dataset.subcardId);
+      if (subcard) setOpenSubcard(subcard);
     }
   }
 
@@ -321,23 +357,34 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
     setHistoryState({ canUndo: true, canRedo: h.index < h.stack.length - 1 });
   }
 
-  function handleOpenPlaceModal() {
+  function captureSelectionForInsert() {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed || !editableRef.current.contains(sel.anchorNode)) {
-      alert('Prima seleziona il testo a cui vuoi collegare un luogo.');
-      return;
+      return false;
     }
     savedRangeRef.current = sel.getRangeAt(0).cloneRange();
     savedTextRef.current = sel.toString();
+    return true;
+  }
+
+  function restoreSelection() {
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    if (savedRangeRef.current) sel.addRange(savedRangeRef.current);
+    editableRef.current.focus();
+  }
+
+  function handleOpenPlaceModal() {
+    if (!captureSelectionForInsert()) {
+      alert('Prima seleziona il testo a cui vuoi collegare un luogo.');
+      return;
+    }
     setPlaceModalOpen(true);
   }
 
   function handleCreatePlace(fields) {
     const place = data.createPlace(user.uid, fields);
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    if (savedRangeRef.current) sel.addRange(savedRangeRef.current);
-    editableRef.current.focus();
+    restoreSelection();
     const html = `<span class="place-link" data-place-id="${place.id}">${escapeHtml(savedTextRef.current)}</span>`;
     document.execCommand('insertHTML', false, html);
     handleContentInput();
@@ -347,7 +394,6 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
   function handleSavePlace(placeId, patch) {
     const updated = data.updatePlace(user.uid, placeId, patch);
     setOpenPlace(updated);
-    // Se il nome è cambiato, aggiorna anche il testo visibile nel foglio
     const span = editableRef.current.querySelector(`.place-link[data-place-id="${placeId}"]`);
     if (span && patch.name && span.textContent !== patch.name) {
       span.textContent = patch.name;
@@ -358,12 +404,71 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
   function handleUnlinkPlace(placeId) {
     const span = editableRef.current.querySelector(`.place-link[data-place-id="${placeId}"]`);
     if (span) {
-      const text = document.createTextNode(span.textContent);
-      span.replaceWith(text);
+      span.replaceWith(document.createTextNode(span.textContent));
       handleContentInput();
     }
     data.deletePlace(user.uid, placeId);
     setOpenPlace(null);
+  }
+
+  function handleOpenSubcardComposer(mode) {
+    if (!captureSelectionForInsert()) {
+      alert('Prima seleziona il testo a cui vuoi collegare una sottoscheda.');
+      return;
+    }
+    setSubcardComposer(mode);
+  }
+
+  function insertSubcardLink(subcardId) {
+    restoreSelection();
+    const html = `<span class="subcard-link" data-subcard-id="${subcardId}">${escapeHtml(savedTextRef.current)}</span>`;
+    document.execCommand('insertHTML', false, html);
+    handleContentInput();
+    setSubcardComposer(null);
+    onSubcardsChanged?.();
+  }
+
+  function handleCreateSubcard(fields) {
+    const subcard = data.createSubcard(user.uid, fields);
+    insertSubcardLink(subcard.id);
+  }
+
+  function handleLinkExistingSubcard(subcardId) {
+    insertSubcardLink(subcardId);
+  }
+
+  function handleSaveSubcard(subcardId, patch) {
+    const updated = data.updateSubcard(user.uid, subcardId, patch);
+    setOpenSubcard(updated);
+    onSubcardsChanged?.();
+  }
+
+  function handleUnlinkSubcard(subcardId) {
+    const span = editableRef.current.querySelector(`.subcard-link[data-subcard-id="${subcardId}"]`);
+    if (span) {
+      span.replaceWith(document.createTextNode(span.textContent));
+      handleContentInput();
+    }
+    setOpenSubcard(null);
+  }
+
+  function handleBeforeOpenHighlight() {
+    captureSelectionForInsert();
+  }
+
+  function handleApplyHighlight(hex, opacityPercent) {
+    if (!savedRangeRef.current) {
+      alert('Prima seleziona il testo da evidenziare.');
+      return;
+    }
+    restoreSelection();
+    document.execCommand('hiliteColor', false, hexToRgba(hex, opacityPercent));
+    handleContentInput();
+  }
+
+  function handleSaveHighlightColor(hex) {
+    data.saveHighlightColor(user.uid, hex);
+    setSavedHighlightColors(data.getSavedHighlightColors(user.uid));
   }
 
   const siblings = siblingPages || [];
@@ -379,6 +484,11 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
         onInsertImageFile={insertImageFile}
         onInsertChecklist={insertChecklistItem}
         onOpenPlaceModal={handleOpenPlaceModal}
+        onOpenSubcardComposer={handleOpenSubcardComposer}
+        onBeforeOpenHighlight={handleBeforeOpenHighlight}
+        savedHighlightColors={savedHighlightColors}
+        onApplyHighlight={handleApplyHighlight}
+        onSaveHighlightColor={handleSaveHighlightColor}
         onUndo={handleUndo}
         onRedo={handleRedo}
         canUndo={historyState.canUndo}
@@ -452,7 +562,7 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
       )}
 
       {openPlace && (
-        <PlaceSidePanel
+        <PlaceCardModal
           place={openPlace}
           onSave={handleSavePlace}
           onUnlink={handleUnlinkPlace}
@@ -460,11 +570,29 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
         />
       )}
 
+      {subcardComposer && (
+        <SubcardComposerModal
+          mode={subcardComposer}
+          selectedText={savedTextRef.current}
+          existingSubcards={data.getAllSubcards(user.uid)}
+          onCreate={handleCreateSubcard}
+          onLink={handleLinkExistingSubcard}
+          onClose={() => setSubcardComposer(null)}
+        />
+      )}
+
+      {openSubcard && (
+        <SubcardModal
+          subcard={openSubcard}
+          allowUnlink
+          onSave={handleSaveSubcard}
+          onUnlink={handleUnlinkSubcard}
+          onClose={() => setOpenSubcard(null)}
+        />
+      )}
+
       {hoverPreview && (
-        <div
-          className="place-hover-preview"
-          style={{ left: hoverPreview.x, top: hoverPreview.y }}
-        >
+        <div className="place-hover-preview" style={{ left: hoverPreview.x, top: hoverPreview.y }}>
           {hoverPreview.place.photoUrl && (
             <img src={hoverPreview.place.photoUrl} alt="" className="place-hover-photo" />
           )}
