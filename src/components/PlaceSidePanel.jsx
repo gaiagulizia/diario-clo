@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getEmbedUrl, getOpenUrl } from '../services/mapsService';
+import PlacePhotoPicker from './PlacePhotoPicker';
 
 export default function PlaceSidePanel({ place, onSave, onUnlink, onClose }) {
   const [form, setForm] = useState(place);
@@ -15,21 +16,23 @@ export default function PlaceSidePanel({ place, onSave, onUnlink, onClose }) {
   }
 
   function handleSave() {
-    if (!form.name.trim() || !form.description.trim()) {
-      setError('Nome e descrizione sono obbligatori.');
+    if (!form.name.trim()) {
+      setError('Il nome non può essere vuoto.');
       return;
     }
     onSave(place.id, {
       name: form.name.trim(),
-      description: form.description.trim(),
+      description: form.description?.trim() || '',
+      address: form.address?.trim() || '',
+      photoUrl: form.photoUrl || '',
       hours: form.hours?.trim() || '',
       price: form.price?.trim() || '',
       status: form.status || null,
     });
   }
 
-  const embedUrl = getEmbedUrl(place);
-  const openUrl = getOpenUrl(place);
+  const embedUrl = getEmbedUrl(form);
+  const openUrl = getOpenUrl(form);
 
   return (
     <>
@@ -59,7 +62,7 @@ export default function PlaceSidePanel({ place, onSave, onUnlink, onClose }) {
             </>
           ) : (
             <div className="place-map-fallback">
-              <p>Anteprima non disponibile per questo link.</p>
+              <p>Aggiungi un indirizzo o delle coordinate per vedere l'anteprima.</p>
             </div>
           )}
           {openUrl && (
@@ -75,8 +78,19 @@ export default function PlaceSidePanel({ place, onSave, onUnlink, onClose }) {
         </div>
 
         <div className="field">
-          <label>Descrizione *</label>
-          <textarea rows={3} value={form.description} onChange={(e) => set('description', e.target.value)} />
+          <label>Indirizzo</label>
+          <input
+            value={form.address || ''}
+            onChange={(e) => set('address', e.target.value)}
+            placeholder="Via Roma 1, Milano"
+          />
+        </div>
+
+        <PlacePhotoPicker photoUrl={form.photoUrl} onChange={(url) => set('photoUrl', url)} />
+
+        <div className="field">
+          <label>Descrizione (facoltativa)</label>
+          <textarea rows={3} value={form.description || ''} onChange={(e) => set('description', e.target.value)} />
         </div>
 
         <div className="place-coords-row">
