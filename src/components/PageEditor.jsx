@@ -5,6 +5,7 @@ import PlaceSidePanel from './PlaceSidePanel';
 import { exportPageAsHtml } from '../services/exportService';
 import { useAuth } from '../context/AuthContext';
 import * as data from '../services/dataService';
+import { getDisplayAddress } from '../services/mapsService';
 
 function escapeHtml(str) {
   const div = document.createElement('div');
@@ -37,6 +38,15 @@ function currentLineTextBeforeCursor(container, range) {
   return tmp.textContent.trim();
 }
 
+function placeCaretAtStart(node) {
+  const range = document.createRange();
+  range.setStart(node, 0);
+  range.collapse(true);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
 export default function PageEditor({ page, onChange, onDelete, siblingPages, onNavigate }) {
   const { user } = useAuth();
   const editableRef = useRef(null);
@@ -46,6 +56,7 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
   const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false });
   const [placeModalOpen, setPlaceModalOpen] = useState(false);
   const [openPlace, setOpenPlace] = useState(null);
+  const [hoverPreview, setHoverPreview] = useState(null); // { place, x, y }
 
   const saveTimeout = useRef(null);
   const historyTimeout = useRef(null);
@@ -53,6 +64,7 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
   const isRestoringRef = useRef(false);
   const savedRangeRef = useRef(null);
   const savedTextRef = useRef('');
+  const hoverTimeoutRef = useRef(null);
 
   useEffect(() => {
     setTitle(page.title || '');
@@ -63,6 +75,7 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
     historyRef.current = { stack: [page.contentHtml || ''], index: 0 };
     setHistoryState({ canUndo: false, canRedo: false });
     setOpenPlace(null);
+    setHoverPreview(null);
   }, [page.id]);
 
   // Rileva quali formattazioni sono attive nel punto in cui si trova il cursore
@@ -89,7 +102,9 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
         italic: document.queryCommandState('italic'),
         underline: document.queryCommandState('underline'),
         insertUnorderedList: document.queryCommandState('insertUnorderedList'),
+        h1: block === 'h1',
         h2: block === 'h2',
+        h3: block === 'h3',
         blockquote: block === 'blockquote',
         checklist: inChecklist,
         place: inPlace,
@@ -176,22 +191,26 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
     sel.addRange(range);
   }
 
-  function placeCaretAtStart(node) {
-    const range = document.createRange();
-    range.setStart(node, 0);
-    range.collapse(true);
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-  }
-
-  /** Gestisce Invio dentro citazioni ed elenchi da spuntare, che sono
-   *  blocchi "fatti in casa" e non hanno un comportamento nativo utile. */
+  /** Gestisce Invio dentro luoghi, citazioni ed elenchi da spuntare, che
+   *  sono blocchi "fatti in casa" e non hanno un comportamento nativo utile. */
   function handleEditableKeyDown(e) {
     if (e.key !== 'Enter') return;
     const editable = editableRef.current;
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return;
+
+    // Se il cursore è dentro un luogo collegato, la riga dopo l'Invio
+    // deve tornare a essere testo normale, non parte del collegamento.
+    const placeLink = closestWithin(sel.anchorNode, editable, (n) => n.classList?.contains('place-link'));
+    if (placeLink) {
+      e.preventDefault();
+      const p = document.createElement('div');
+      p.innerHTML = '<br>';
+      placeLink.after(p);
+      placeCaretAtStart(p);
+      handleContentInput();
+      return;
+    }
 
     const bq = closestWithin(sel.anchorNode, editable, (n) => n.tagName === 'BLOCKQUOTE');
     if (bq) {
@@ -252,10 +271,31 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
     const placeEl = e.target.closest('.place-link');
     if (placeEl) {
       e.preventDefault();
+      setHoverPreview(null);
       const placeId = placeEl.dataset.placeId;
       const place = data.getPlace(user.uid, placeId);
       if (place) setOpenPlace(place);
     }
+  }
+
+  function handleEditableMouseOver(e) {
+    const placeEl = e.target.closest('.place-link');
+    if (!placeEl) return;
+    clearTimeout(hoverTimeoutRef.current);
+    hoverTimeoutRef.current = setTimeout(() => {
+      const place = data.getPlace(user.uid, placeEl.dataset.placeId);
+      if (!place) return;
+      const rect = placeEl.getBoundingClientRect();
+      setHoverPreview({ place, x: rect.left, y: rect.bottom + 8 });
+    }, 500);
+  }
+
+  function handleEditableMouseOut(e) {
+    const placeEl = e.target.closest('.place-link');
+    if (!placeEl) return;
+    if (placeEl.contains(e.relatedTarget)) return;
+    clearTimeout(hoverTimeoutRef.current);
+    setHoverPreview(null);
   }
 
   function restoreHtml(html) {
@@ -307,6 +347,12 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
   function handleSavePlace(placeId, patch) {
     const updated = data.updatePlace(user.uid, placeId, patch);
     setOpenPlace(updated);
+    // Se il nome è cambiato, aggiorna anche il testo visibile nel foglio
+    const span = editableRef.current.querySelector(`.place-link[data-place-id="${placeId}"]`);
+    if (span && patch.name && span.textContent !== patch.name) {
+      span.textContent = patch.name;
+      handleContentInput();
+    }
   }
 
   function handleUnlinkPlace(placeId) {
@@ -371,6 +417,8 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
           onInput={handleContentInput}
           onClick={handleEditableClick}
           onKeyDown={handleEditableKeyDown}
+          onMouseOver={handleEditableMouseOver}
+          onMouseOut={handleEditableMouseOut}
           data-placeholder="Scrivi qui i pensieri di oggi…"
         />
       </div>
@@ -410,6 +458,21 @@ export default function PageEditor({ page, onChange, onDelete, siblingPages, onN
           onUnlink={handleUnlinkPlace}
           onClose={() => setOpenPlace(null)}
         />
+      )}
+
+      {hoverPreview && (
+        <div
+          className="place-hover-preview"
+          style={{ left: hoverPreview.x, top: hoverPreview.y }}
+        >
+          {hoverPreview.place.photoUrl && (
+            <img src={hoverPreview.place.photoUrl} alt="" className="place-hover-photo" />
+          )}
+          <div className="place-hover-body">
+            <p className="place-hover-name">{hoverPreview.place.name}</p>
+            <p className="place-hover-address">{getDisplayAddress(hoverPreview.place) || 'Nessun indirizzo'}</p>
+          </div>
+        </div>
       )}
     </div>
   );
