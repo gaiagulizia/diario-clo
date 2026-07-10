@@ -402,6 +402,11 @@ export function updateSubcard(ownerId, subcardId, patch) {
   return subcards.find((s) => s.id === subcardId);
 }
 
+export function deleteSubcard(ownerId, subcardId) {
+  const subcards = read(SUBCARDS_KEY(ownerId)).filter((s) => s.id !== subcardId);
+  write(SUBCARDS_KEY(ownerId), subcards);
+}
+
 /** Estrae dal contenuto HTML di un foglio gli id di tutte le sottoschede
  *  a cui è collegato del testo (senza duplicati). Usata per mostrare
  *  l'elenco espandibile nella barra dei fogli. */
