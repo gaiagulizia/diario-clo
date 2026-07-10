@@ -4,9 +4,9 @@ import Login from './components/Login';
 import NotebookSidebar from './components/NotebookSidebar';
 import PageList from './components/PageList';
 import PageEditor from './components/PageEditor';
+import SubcardEditor from './components/SubcardEditor';
 import TrashModal from './components/TrashModal';
 import SettingsModal from './components/SettingsModal';
-import SubcardModal from './components/SubcardModal';
 import * as data from './services/dataService';
 import { exportNotebookAsHtml, exportNotebookAsJson } from './services/exportService';
 
@@ -20,7 +20,10 @@ function DiaryApp() {
   const [trashItems, setTrashItems] = useState([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [allSubcards, setAllSubcards] = useState([]);
-  const [viewSubcard, setViewSubcard] = useState(null);
+  // Pila delle sottoschede aperte in sequenza (una sottoscheda può
+  // contenere il collegamento a un'altra sottoscheda): l'ultima è quella
+  // visibile, "torna alla pagina" toglie l'ultima.
+  const [subcardStack, setSubcardStack] = useState([]);
 
   // All'avvio: elimina dal cestino ciò che ha più di 60 giorni, poi carica i quaderni
   useEffect(() => {
@@ -41,6 +44,7 @@ function DiaryApp() {
     if (!currentNotebookId) return;
     refreshPages();
     setActivePageId(null);
+    setSubcardStack([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentNotebookId]);
 
@@ -63,15 +67,14 @@ function DiaryApp() {
     [allSubcards]
   );
 
-  function handleOpenSubcardFromList(subcardId) {
-    const s = data.getSubcard(user.uid, subcardId);
-    if (s) setViewSubcard(s);
+  const openSubcardId = subcardStack[subcardStack.length - 1] || null;
+
+  function pushSubcard(subcardId) {
+    setSubcardStack((s) => [...s, subcardId]);
   }
 
-  function handleSaveViewSubcard(subcardId, patch) {
-    const updated = data.updateSubcard(user.uid, subcardId, patch);
-    setViewSubcard(updated);
-    refreshSubcards();
+  function popSubcard() {
+    setSubcardStack((s) => s.slice(0, -1));
   }
 
   const activePage = useMemo(
@@ -98,6 +101,7 @@ function DiaryApp() {
   }
 
   function selectPage(pageId) {
+    setSubcardStack([]);
     if (pageId === activePageId) return;
     discardIfBlank(activePageId);
     setActivePageId(pageId);
@@ -131,6 +135,7 @@ function DiaryApp() {
   }
 
   function handleNewPage() {
+    setSubcardStack([]);
     discardIfBlank(activePageId);
     const page = data.createPage(user.uid, currentNotebookId);
     setPages((prev) => [...prev, page]);
@@ -226,17 +231,27 @@ function DiaryApp() {
         onDeletePages={handleBulkDeletePages}
         onAssignTags={handleAssignTags}
         subcardsById={subcardsById}
-        onOpenSubcard={handleOpenSubcardFromList}
+        onOpenSubcard={pushSubcard}
       />
 
       <div className="editor-area">
-        {activePage ? (
+        {openSubcardId ? (
+          <SubcardEditor
+            subcardId={openSubcardId}
+            backLabel={subcardStack.length > 1 ? 'Torna alla sottoscheda precedente' : 'Torna alla pagina'}
+            onBack={popSubcard}
+            onNavigateToSubcard={pushSubcard}
+            onSubcardsChanged={refreshSubcards}
+            onDeleted={popSubcard}
+          />
+        ) : activePage ? (
           <PageEditor
             page={activePage}
             onChange={handlePageChange}
             onDelete={handleDeletePage}
             siblingPages={pages}
             onNavigate={selectPage}
+            onNavigateToSubcard={pushSubcard}
             onSubcardsChanged={refreshSubcards}
           />
         ) : (
@@ -249,7 +264,7 @@ function DiaryApp() {
         )}
       </div>
 
-      {activePage && (
+      {activePage && !openSubcardId && (
         <button className="fab" title="Nuovo foglio" onClick={handleNewPage}>
           +
         </button>
@@ -267,15 +282,6 @@ function DiaryApp() {
 
       {settingsOpen && (
         <SettingsModal onClose={() => setSettingsOpen(false)} onChanged={refreshPages} />
-      )}
-
-      {viewSubcard && (
-        <SubcardModal
-          subcard={viewSubcard}
-          allowUnlink={false}
-          onSave={handleSaveViewSubcard}
-          onClose={() => setViewSubcard(null)}
-        />
       )}
     </div>
   );
